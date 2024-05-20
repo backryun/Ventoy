@@ -60,7 +60,7 @@
 #define PE_HEADER_LEN 512
 
 /** .reloc section index */
-#define RELOC_SECTION_INDEX 3
+#define RELOC_SECTION_INDEX 4
 
 /** PE relocations */
 struct pe_relocs {
@@ -324,9 +324,7 @@ static void process_reloc ( bfd *bfd __unused, asection *section, arelent *rel,
 	} else if ( strcmp ( howto->name, "R_X86_64_64" ) == 0 ) {
 		/* Generate an 8-byte PE relocation */
 		generate_pe_reloc ( pe_reltab, offset, 8 );
-	} else if ( ( strcmp ( howto->name, "R_386_32" ) == 0 ) ||
-		    ( strcmp ( howto->name, "R_X86_64_32" ) == 0 ) ||
-		    ( strcmp ( howto->name, "R_X86_64_32S" ) == 0 ) ) {
+	} else if ( strcmp ( howto->name, "R_386_32" ) == 0 ) {
 		/* Generate a 4-byte PE relocation */
 		generate_pe_reloc ( pe_reltab, offset, 4 );
 	} else if ( ( strcmp ( howto->name, "R_386_16" ) == 0 ) ||
@@ -338,6 +336,10 @@ static void process_reloc ( bfd *bfd __unused, asection *section, arelent *rel,
 		    ( strcmp ( howto->name, "R_X86_64_PLT32" ) == 0 ) ) {
 		/* Skip PC-relative relocations; all relative offsets
 		 * remain unaltered when the object is loaded.
+		 */
+	} else if ( strcmp ( howto->name, "R_X86_64_32" ) == 0 ) {
+		/* Ignore 32-bit relocations within BIOS code in
+		 * hybrid 32-bit BIOS / 64-bit UEFI binaries.
 		 */
 	} else {
 		eprintf ( "Unrecognised relocation type %s\n", howto->name );
@@ -355,24 +357,19 @@ static void process_reloc ( bfd *bfd __unused, asection *section, arelent *rel,
 static size_t output_pe_reltab ( int fd, struct pe_relocs *pe_reltab ) {
 	EFI_IMAGE_BASE_RELOCATION header;
 	struct pe_relocs *pe_rel;
-	static uint8_t pad[16];
 	unsigned int num_relocs;
 	size_t size;
-	size_t pad_size;
 	size_t total_size = 0;
 
 	for ( pe_rel = pe_reltab ; pe_rel ; pe_rel = pe_rel->next ) {
 		num_relocs = ( ( pe_rel->used_relocs + 1 ) & ~1 );
 		size = ( sizeof ( header ) +
 			 ( num_relocs * sizeof ( uint16_t ) ) );
-		pad_size = ( ( -size ) & ( sizeof ( pad ) - 1 ) );
-		size += pad_size;
 		header.VirtualAddress = pe_rel->start_rva;
 		header.SizeOfBlock = size;
 		xwrite ( fd, &header, sizeof ( header ) );
 		xwrite ( fd, pe_rel->relocs,
 			 ( num_relocs * sizeof ( uint16_t ) ) );
-		xwrite ( fd, pad, pad_size );
 		total_size += size;
 	}
 
@@ -392,6 +389,7 @@ static void efireloc ( const char *elf_name, const char *pe_name ) {
 	EFI_IMAGE_OPTIONAL_HEADER_UNION *nt;
 	EFI_IMAGE_DATA_DIRECTORY *data_dir;
 	EFI_IMAGE_SECTION_HEADER *pe_sections;
+	unsigned int num_data_dirs;
 	UINT32 *image_size;
 	bfd *bfd;
 	asymbol **symtab;
@@ -422,15 +420,16 @@ static void efireloc ( const char *elf_name, const char *pe_name ) {
 	if ( nt->Pe32.FileHeader.Machine == EFI_IMAGE_MACHINE_IA32 ) {
 		image_size = &nt->Pe32.OptionalHeader.SizeOfImage;
 		data_dir = nt->Pe32.OptionalHeader.DataDirectory;
-		pe_sections = ( ( ( void * ) nt ) + sizeof ( nt->Pe32 ) );
+		num_data_dirs = nt->Pe32.OptionalHeader.NumberOfRvaAndSizes;
 	} else if ( nt->Pe32Plus.FileHeader.Machine == EFI_IMAGE_MACHINE_X64 ) {
 		image_size = &nt->Pe32Plus.OptionalHeader.SizeOfImage;
 		data_dir = nt->Pe32Plus.OptionalHeader.DataDirectory;
-		pe_sections = ( ( ( void * ) nt ) + sizeof ( nt->Pe32Plus ) );
+		num_data_dirs = nt->Pe32Plus.OptionalHeader.NumberOfRvaAndSizes;
 	} else {
 		eprintf ( "Unrecognised machine type\n" );
 		exit ( 1 );
 	}
+	pe_sections = ( ( void * ) &data_dir[num_data_dirs] );
 
 	/* Open the input file */
 	bfd = open_input_bfd ( elf_name );

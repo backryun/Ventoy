@@ -56,12 +56,6 @@ int cmdline_linear;
 /** WIM boot index */
 unsigned int cmdline_index;
 
-int cmdline_vf_num;
-char cmdline_vf_path[MAX_VF][64];
-
-file_size_pf pfventoy_file_size;
-file_read_pf pfventoy_file_read;
-
 /**
  * Process command line
  *
@@ -72,6 +66,7 @@ void process_cmdline ( char *cmdline ) {
 	char *key;
 	char *value;
 	char *endp;
+	char chr;
 
 	/* Do nothing if we have no command line */
 	if ( ( cmdline == NULL ) || ( cmdline[0] == '\0' ) )
@@ -87,11 +82,11 @@ void process_cmdline ( char *cmdline ) {
 		/* Find value (if any) and end of this argument */
 		key = tmp;
 		value = NULL;
-		while ( *tmp ) {
-			if ( isspace ( *tmp ) ) {
+		while ( ( chr = *tmp ) ) {
+			if ( isspace ( chr ) ) {
 				*(tmp++) = '\0';
 				break;
-			} else if ( *tmp == '=' ) {
+			} else if ( ( chr == '=' ) && ( ! value ) ) {
 				*(tmp++) = '\0';
 				value = tmp;
 			} else {
@@ -106,20 +101,7 @@ void process_cmdline ( char *cmdline ) {
 			cmdline_rawwim = 1;
 		} else if ( strcmp ( key, "gui" ) == 0 ) {
 			cmdline_gui = 1;
-		}
-
-        else if ((key[0] == 'v') && (key[1] == 'f') ) {
-            if (cmdline_vf_num >= MAX_VF)
-                die("Too many vf\n");
-            snprintf(cmdline_vf_path[cmdline_vf_num], 64, "%s", value);
-            cmdline_vf_num++;
-		}else if ( strcmp ( key, "pfsize" ) == 0 ) {    
-            pfventoy_file_size = (file_size_pf)strtoul(value, &endp, 0);
-		} else if ( strcmp ( key, "pfread" ) == 0 ) {
-            pfventoy_file_read = (file_read_pf)strtoul(value, &endp, 0 );
-		}
-
-        else if ( strcmp ( key, "linear" ) == 0 ) {
+		} else if ( strcmp ( key, "linear" ) == 0 ) {
 			cmdline_linear = 1;
 		} else if ( strcmp ( key, "quiet" ) == 0 ) {
 			cmdline_quiet = 1;
@@ -143,9 +125,14 @@ void process_cmdline ( char *cmdline ) {
 			die ( "Unrecognised argument \"%s%s%s\"\n", key,
 			      ( value ? "=" : "" ), ( value ? value : "" ) );
 		}
+
+		/* Undo modifications to command line */
+		if ( chr )
+			tmp[-1] = chr;
+		if ( value )
+			value[-1] = '=';
 	}
 
 	/* Show command line (after parsing "quiet" option) */
-	DBG ( "Command line: \"%s\" vf=%d pfsize=%p pfread=%p\n", 
-	    cmdline, cmdline_vf_num, pfventoy_file_size, pfventoy_file_read);
+	DBG ( "Command line: \"%s\"\n", cmdline );
 }

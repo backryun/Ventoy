@@ -37,12 +37,4 @@ extern int cmdline_linear;
 extern unsigned int cmdline_index;
 extern void process_cmdline ( char *cmdline );
 
-typedef int (*file_size_pf)(const char *path);
-typedef int (*file_read_pf)(const char *path, int offset, int len, void *buf);
-extern file_size_pf pfventoy_file_size;
-extern file_read_pf pfventoy_file_read;
-#define MAX_VF 16
-extern char cmdline_vf_path[MAX_VF][64];
-extern int cmdline_vf_num;
-
 #endif /* _CMDLINE_H */

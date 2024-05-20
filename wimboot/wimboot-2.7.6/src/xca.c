@@ -42,7 +42,7 @@
  */
 ssize_t xca_decompress ( const void *data, size_t len, void *buf ) {
 	const void *src = data;
-	const void *end = ( uint8_t * ) src + len;
+	const void *end = ( src + len );
 	uint8_t *out = buf;
 	size_t out_len = 0;
 	size_t out_len_threshold = 0;
@@ -67,9 +67,11 @@ ssize_t xca_decompress ( const void *data, size_t len, void *buf ) {
 
 			/* Construct symbol lengths */
 			lengths = src;
-			src = ( uint8_t * ) src + sizeof ( *lengths );
+			src += sizeof ( *lengths );
 			if ( src > end ) {
-				DBG ( "XCA too short to hold Huffman lengths table.\n");
+				DBG ( "XCA too short to hold Huffman lengths "
+				      "table at input offset %#zx\n",
+				      ( src - data ) );
 				return -1;
 			}
 			for ( raw = 0 ; raw < XCA_CODES ; raw++ )
@@ -111,7 +113,7 @@ ssize_t xca_decompress ( const void *data, size_t len, void *buf ) {
 			out_len++;
 
 		} else if ( ( raw == XCA_END_MARKER ) &&
-			    ( (uint8_t *) src >= ( ( uint8_t * ) end - 1 ) ) ) {
+			    ( src >= ( end - 1 ) ) ) {
 
 			/* End marker symbol */
 			return out_len;
@@ -155,5 +157,10 @@ ssize_t xca_decompress ( const void *data, size_t len, void *buf ) {
 		}
 	}
 
-	return out_len;
+	/* Allow for termination with no explicit end marker symbol */
+	if ( src == end )
+		return out_len;
+
+	DBG ( "XCA input overrun at output length %#zx\n", out_len );
+	return -1;
 }

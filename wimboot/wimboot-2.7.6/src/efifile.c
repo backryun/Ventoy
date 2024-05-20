@@ -81,7 +81,6 @@ static const CHAR16 * efi_bootarch ( void ) {
  */
 static void efi_read_file ( struct vdisk_file *vfile, void *data,
 			    size_t offset, size_t len ) {
-#if 0
 	EFI_FILE_PROTOCOL *file = vfile->opaque;
 	UINTN size = len;
 	EFI_STATUS efirc;
@@ -97,11 +96,6 @@ static void efi_read_file ( struct vdisk_file *vfile, void *data,
 		die ( "Could not read from file: %#lx\n",
 		      ( ( unsigned long ) efirc ) );
 	}
-#endif /* #if 0 */
-
-    (void)vfile;
-
-    pfventoy_file_read((const char *)vfile->opaque, (int)offset, (int)len, data);
 }
 
 /**
@@ -141,30 +135,71 @@ static void efi_patch_bcd ( struct vdisk_file *vfile __unused, void *data,
  * @v handle		Device handle
  */
 void efi_extract ( EFI_HANDLE handle ) {
+	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	union {
+		EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs;
+		void *interface;
+	} fs;
+	struct {
+		EFI_FILE_INFO file;
+		CHAR16 name[ VDISK_NAME_LEN + 1 /* WNUL */ ];
+	} __attribute__ (( packed )) info;
+	char name[ VDISK_NAME_LEN + 1 /* NUL */ ];
 	struct vdisk_file *wim = NULL;
 	struct vdisk_file *vfile;
-	CHAR16 wname[64];
-    int i, j, k;
-    char *pos;
-    size_t len = 0;
+	EFI_FILE_PROTOCOL *root;
+	EFI_FILE_PROTOCOL *file;
+	UINTN size;
+	CHAR16 *wname;
+	EFI_STATUS efirc;
 
-    (void)handle;
+	/* Open file system */
+	if ( ( efirc = bs->OpenProtocol ( handle,
+					  &efi_simple_file_system_protocol_guid,
+					  &fs.interface, efi_image_handle, NULL,
+					  EFI_OPEN_PROTOCOL_GET_PROTOCOL ))!=0){
+		die ( "Could not open simple file system: %#lx\n",
+		      ( ( unsigned long ) efirc ) );
+	}
+
+	/* Open root directory */
+	if ( ( efirc = fs.fs->OpenVolume ( fs.fs, &root ) ) != 0 ) {
+		die ( "Could not open root directory: %#lx\n",
+		      ( ( unsigned long ) efirc ) );
+	}
+
+	/* Close file system */
+	bs->CloseProtocol ( handle, &efi_simple_file_system_protocol_guid,
+			    efi_image_handle, NULL );
 
 	/* Read root directory */
-    for (i = 0; i < cmdline_vf_num; i++) {
-        pos = strchr(cmdline_vf_path[i], ':');
+	while ( 1 ) {
 
-        *pos = 0;
-        k = (int)strlen(cmdline_vf_path[i]);
-    
-        memset(wname, 0, sizeof(wname));
-        for (j = 0; j < k; j++)
-        {
-            wname[j] = cmdline_vf_path[i][j];
-        }
+		/* Read directory entry */
+		size = sizeof ( info );
+		if ( ( efirc = root->Read ( root, &size, &info ) ) != 0 ) {
+			die ( "Could not read root directory: %#lx\n",
+			      ( ( unsigned long ) efirc ) );
+		}
+		if ( size == 0 )
+			break;
 
-        len = pfventoy_file_size(pos + 1);
-		vfile = vdisk_add_file (cmdline_vf_path[i], pos + 1, len, efi_read_file);
+		/* Ignore subdirectories */
+		if ( info.file.Attribute & EFI_FILE_DIRECTORY )
+			continue;
+
+		/* Open file */
+		wname = info.file.FileName;
+		if ( ( efirc = root->Open ( root, &file, wname,
+					    EFI_FILE_MODE_READ, 0 ) ) != 0 ) {
+			die ( "Could not open \"%ls\": %#lx\n",
+			      wname, ( ( unsigned long ) efirc ) );
+		}
+
+		/* Add file */
+		snprintf ( name, sizeof ( name ), "%ls", wname );
+		vfile = vdisk_add_file ( name, file, info.file.FileSize,
+					 efi_read_file );
 
 		/* Check for special-case files */
 		if ( ( wcscasecmp ( wname, efi_bootarch() ) == 0 ) ||

@@ -428,9 +428,8 @@ int main ( void ) {
 	init_cookie();
 
 	/* Print welcome banner */
-    printf ( "\n\nBooting wim file...... (This may take a few minutes, please wait)\n\n");
-	//printf ( "\n\nwimboot " VERSION " -- Windows Imaging Format "
-	//	 "bootloader -- https://ipxe.org/wimboot\n\n" );
+	printf ( "\n\nwimboot " VERSION " -- Windows Imaging Format "
+		 "bootloader -- https://ipxe.org/wimboot\n\n" );
 
 	/* Process command line */
 	process_cmdline ( cmdline );
